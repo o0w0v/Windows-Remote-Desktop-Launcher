@@ -59,12 +59,12 @@ Windows向けの **RDP（mstsc）起動ランチャー** です。
 
 ---
 
-## Build (Development)
+# Build (Development)
 
-# 依存取得・ビルド
+## 依存取得・ビルド
 .\gradlew clean build
 
-# 実行（開発）
+## 実行（開発）
 .\gradlew run
 
 ## Package (Installer / MSI)
