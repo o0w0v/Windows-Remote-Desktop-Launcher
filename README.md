@@ -15,7 +15,7 @@ Windows向けの **RDP（mstsc）起動ランチャー** です。
 
 ## Screenshots
 
-![アプリケーションの画面サンプル](IMG＿6331.JPEG)
+![アプリケーションの画面サンプル](IMG_6331.jpeg)
 
 ---
 
