@@ -14,7 +14,7 @@ Wix Toolset v3.14 が必要です。
 .\gradlew run
 ```
 
-# Package (MSI)
+#＃Package (MS
 ```powershell
 .\gradlew clean jpackage 
 ```
