@@ -23,16 +23,17 @@ jobs:
           java-version: "22"
           cache: gradle
 
-      # MSIを作るならWiXが必要（msiだけ作るならこれ必須）
+      # MSIを作るならWiXが必要
       - name: Install WiX Toolset
         run: choco install wixtoolset -y
 
       - name: Build (jpackage)
         shell: pwsh
         run: |
-          .\gradlew --no-daemon clean jpackage
+          .\gradlew --no-daemon clean jpackage -PinstallerType=msi
+          .\gradlew --no-daemon clean jpackage -PinstallerType=exe
 
-      # 生成物を探してreleaseに添付（MSI/EXE両方対応）
+      # 生成物を探してreleaseに添付
       - name: Collect artifacts
         shell: pwsh
         run: |
