@@ -1,0 +1,51 @@
+name: Build and Release (Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 22
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "22"
+          cache: gradle
+
+      # MSIを作るならWiXが必要（msiだけ作るならこれ必須）
+      - name: Install WiX Toolset
+        run: choco install wixtoolset -y
+
+      - name: Build (jpackage)
+        shell: pwsh
+        run: |
+          .\gradlew --no-daemon clean jpackage
+
+      # 生成物を探してreleaseに添付（MSI/EXE両方対応）
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Get-ChildItem -Recurse -Path build -Include *.msi,*.exe | ForEach-Object {
+            Copy-Item $_.FullName -Destination dist -Force
+          }
+          Get-ChildItem dist
+
+      - name: Create GitHub Release and upload files
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.msi
+            dist/*.exe
+          generate_release_notes: true
