@@ -61,7 +61,6 @@ Windows向けの **RDP（mstsc）起動ランチャー** です。
 
 ## Build (Development)
 
-```powershell
 # 依存取得・ビルド
 .\gradlew clean build
 
