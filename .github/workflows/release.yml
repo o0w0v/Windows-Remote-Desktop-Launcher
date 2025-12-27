@@ -31,7 +31,6 @@ jobs:
         shell: pwsh
         run: |
           .\gradlew --no-daemon clean jpackage -PinstallerType=msi
-          .\gradlew --no-daemon clean jpackage -PinstallerType=exe
 
       # 生成物を探してreleaseに添付
       - name: Collect artifacts
@@ -49,4 +48,28 @@ jobs:
           files: |
             build/jpackage/**/*.msi
             build/jpackage/**/*.exe
+
+      - name: Build (jpackage exe)
+        shell: pwsh
+        run: |
+          .\gradlew --no-daemon clean jpackage -PinstallerType=exe
+
+      # 生成物を探してreleaseに添付
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Get-ChildItem -Recurse -Path build -Include *.msi,*.exe | ForEach-Object {
+            Copy-Item $_.FullName -Destination dist -Force
+          }
+          Get-ChildItem dist
+
+      - name: Create GitHub Release and upload files
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/jpackage/**/*.msi
+            build/jpackage/*.exe
           generate_release_notes: true
+
+
