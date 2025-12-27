@@ -1,0 +1,47 @@
+RdpLauncher Source-Available License (RSAL) v1.1
+
+Copyright (c) 2025 o0w0v
+
+This software and its source code (the “Software”) are provided under the terms below.
+
+1. Grant of License
+Subject to the terms of this license, you are granted a non-exclusive, worldwide, royalty-free license to:
+(a) use the Software for personal use or internal use within an organization (including commercial/internal use),
+(b) copy and modify the Software for your own use,
+(c) distribute the Software ONLY under the conditions in Section 2.
+
+2. Distribution (Free Only) + Notice Requirement
+2.1 You may distribute (share) the Software in source and/or binary form only if:
+(a) you do NOT charge any fee for the Software itself, for access to the Software, or for distribution of the Software,
+(b) you do NOT request or accept donations, tips, “support”, or any other monetary contribution in exchange for the Software or access to it,
+(c) you include this LICENSE file and retain all copyright notices,
+(d) you clearly indicate whether the distributed version is modified.
+
+2.2 If you distribute a modified version, you must notify the original author.
+Notification must include:
+- where it is distributed (URL or repository),
+- a short description of changes.
+
+CONTACT: Github issues on "https://github.com/o0w0v/Windows-Remote-Desktop-Launcher/issues"
+
+3. Prohibited Commercial Use (No Paid Services / No Monetization)
+You may NOT:
+(a) sell the Software (including modified versions),
+(b) bundle the Software into any paid product or offering,
+(c) provide the Software as part of a paid service (including hosting, managed service, consulting deliverables, or “setup/operation service” where the Software is a material component),
+(d) monetize access to the Software in any form.
+
+4. Trademarks / Name
+This license does not grant rights to use the project name, logos, or branding in a way that suggests endorsement by the original author.
+
+5. Disclaimer of Warranty
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+6. Limitation of Liability
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. Termination
+Any violation of this license automatically terminates your rights under this license.
