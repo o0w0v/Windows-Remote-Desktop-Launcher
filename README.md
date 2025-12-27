@@ -4,7 +4,6 @@ JavaFX + Gradle で作成したWindows Remote Desktop Launcher.
 SSHによる踏み台接続を1つのアプリケーションで完結させました.
 
 ## Build
-Wix Toolset v3.14 が必要です。
 ```powershell
 .\gradlew clean build
 ```
@@ -15,6 +14,7 @@ Wix Toolset v3.14 が必要です。
 ```
 
 ## Package (MSI)
+Wix Toolset v3.14 が必要です。
 ```powershell
 .\gradlew clean jpackage 
 ```
