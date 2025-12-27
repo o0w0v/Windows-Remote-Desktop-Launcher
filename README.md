@@ -74,7 +74,7 @@ Windows向けの **RDP（mstsc）起動ランチャー** です。
 
 PowerShell:
 
-    .\gradlew clean jpackage
+    .\gradlew clean jpackage -PinstallerType=msi
 
 生成物の例:
 - `build/jpackage/Windows Remote Desktop Launcher/*.msi`
