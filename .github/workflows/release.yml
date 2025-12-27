@@ -47,8 +47,8 @@ jobs:
         with:
           files: |
             build/jpackage/**/*.msi
-            build/jpackage/**/*.exe
-
+            
+      #EXEファイル生成
       - name: Build (jpackage exe)
         shell: pwsh
         run: |
@@ -68,7 +68,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/jpackage/**/*.msi
             build/jpackage/*.exe
           generate_release_notes: true
 
