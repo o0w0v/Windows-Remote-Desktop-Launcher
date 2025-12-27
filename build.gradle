@@ -1,0 +1,43 @@
+plugins {
+  id 'application'
+  id 'org.openjfx.javafxplugin' version '0.1.0'
+  id 'org.beryx.jlink' version '3.2.0'
+}
+
+repositories { mavenCentral() }
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(22) } }
+
+javafx {
+  version = '22.0.2'
+  modules = [ 'javafx.controls' ]
+}
+
+application {
+  mainClass = 'app.RdpLauncherApp'
+  mainModule = 'app'
+}
+
+jlink {
+  options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages']
+
+  launcher {
+    name = 'rdp-launcher' // 空白なし
+  }
+
+  jpackage {
+    jpackageHome = 'C:/Program Files/Java/jdk-22'
+    installerType = 'msi'
+    appVersion = '1.0.0'
+
+    installerName = 'Windows Remote Desktop Launcher'
+    imageName     = 'Windows Remote Desktop Launcher'
+
+    icon = file('src/main/resources/app.ico').absolutePath
+
+    // ★ここからがポイント：--win-console を消す
+    imageOptions = ['--verbose']   // もしくは [] でもOK
+
+    installerOptions += ['--win-menu', '--win-shortcut', '--win-per-user-install']
+  }
+}

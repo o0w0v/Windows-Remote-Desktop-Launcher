@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+gradle.properties
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+
+# OS / temp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+src/main/resources/app/i.ico
