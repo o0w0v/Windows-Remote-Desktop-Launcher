@@ -22,7 +22,7 @@ jlink {
   options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages']
 
   launcher {
-    name = 'rdp-launcher' // exe名。空白なし推奨
+    name = 'rdp-launcher' // 実行ファイル名
   }
 
   jpackage {
@@ -31,14 +31,12 @@ jlink {
     installerType = (findProperty('installerType') ?: 'msi') 
     appVersion = '0.1.1'  // バージョン情報
 
-    // 表示名（スタートメニュー/アプリと機能）
+    // Windows 向け設定
     installerName = 'Windows Remote Desktop Launcher'
     imageName     = 'Windows Remote Desktop Launcher'
 
     icon = file('src/main/resources/app.ico').absolutePath
 
-    // Release では win-console は基本「付けない」
-    // imageOptions = ['--verbose']  // 必要なら一時的に
     imageOptions = []
 
     installerOptions += [
@@ -49,10 +47,10 @@ jlink {
       // ★EULA表示（インストーラの「同意」画面）
       '--license-file', file('installer/EULA-ja.rtf').absolutePath,
 
-      // （任意）インストール先変更を許可したい場合
+      // インストール先変更を許可
       '--win-dir-chooser',
 
-      // （任意）将来アップグレードしたいなら固定GUIDを入れる（※一度決めたら変えない）
+      // 固定GUIDを指定（アップグレード時に必要）
       '--win-upgrade-uuid', '6d9a1e04-27a0-4f98-982c-4845567754d8'
     ]
   }
