@@ -52,7 +52,7 @@ Windows向けの **RDP（mstsc）起動ランチャー** です。
 
 ## Project Structure
 
-- `src/main/java/app/RdpLauncherApp.java` : メインアプリ
+- `src/main/java/app/*.java` : アプリケーションソース
 - `src/main/resources/app/` : リソース（アイコンなど）
 - `build.gradle` : ビルド設定（JavaFX + jlink + jpackage）
 - `gradlew` / `gradlew.bat` : Gradle Wrapper
