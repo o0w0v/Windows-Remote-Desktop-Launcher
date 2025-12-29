@@ -31,6 +31,8 @@ public class RdpLauncherApp extends Application {
     private static final Path SESSIONS_CSV = APP_DIR.resolve("sessions.csv");
     private static final Path APP_KNOWN_HOSTS = APP_DIR.resolve("known_hosts");
 
+    private static final String title = "Windows Remote Desktop Launcher v0.1.1";
+
     private final Connection connection = new Connection(
             LOCAL_BIND, LOOPBACK_HOST_FOR_RDP, MSTSC_EXE, APP_DIR, APP_KNOWN_HOSTS
     );
@@ -229,7 +231,7 @@ public class RdpLauncherApp extends Application {
             stage.getIcons().add(new Image(Objects.requireNonNull(getClass().getResourceAsStream("/app/app.png"))));
         } catch (Exception ignored) {}
 
-        stage.setTitle("Windows Remote Desktop Launcher");
+        stage.setTitle(title);
         stage.setScene(new Scene(root, 1020, 700));
         stage.show();
 
