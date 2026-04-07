@@ -26,10 +26,11 @@ jlink {
   }
 
   jpackage {
-    // jpackageHome = 'C:/Program Files/Java/jdk-22'
-    jpackageHome = System.getenv("JAVA_HOME")
+    jpackageHome = findProperty('jpackageHome')
+        ?: System.getenv("JAVA_HOME")
+        ?: 'C:/Program Files/Java/jdk-22'
     installerType = (findProperty('installerType') ?: 'msi') 
-    appVersion = '0.1.1'  // バージョン情報
+    appVersion = '0.1.2'  // バージョン情報
 
     // Windows 向け設定
     installerName = 'Windows Remote Desktop Launcher'

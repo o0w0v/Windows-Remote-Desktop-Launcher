@@ -1,11 +1,20 @@
 package app;
 
 import java.io.IOException;
-import java.net.*;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.Charset;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 public final class SshHelpers {
@@ -18,16 +27,13 @@ public final class SshHelpers {
             "(?i)(password|passphrase|keyboard-interactive|verification code|one-time|otp|enter.*pass|permission denied)"
     );
 
-    /**
-     * 1) まず BatchMode=yes (鍵/agent想定)
-     * 2) 落ちたらログを見て入力が必要っぽければ askpass(BatchMode=no) で再実行
-     */
     public static SshStartResult startSshTunnelSmart(
             Path appDir,
             Path appKnownHosts,
             String localBind,
             int localPort,
             String sshAlias,
+            String jumpHosts,
             String sshOptions,
             String rdpHost,
             int rdpPort
@@ -35,26 +41,23 @@ public final class SshHelpers {
 
         Files.createDirectories(appDir);
 
-        // まずは鍵/agent前提（入力なし）
         SshStartResult r1 = startTunnelHidden(
-                appDir, appKnownHosts, localBind, localPort, sshAlias, sshOptions, rdpHost, rdpPort,
-                true,  // batchMode
-                null   // askpassCmd
+                appDir, appKnownHosts, localBind, localPort, sshAlias, jumpHosts, sshOptions, rdpHost, rdpPort,
+                true,
+                null
         );
 
-        // 少し待って生存チェック（即死ならフォールバック）
         Thread.sleep(300);
         if (isProcessAlive(r1.pid())) return r1;
 
         String tail = tailTextFile(r1.errLog(), 120);
         if (NEEDS_INPUT.matcher(tail).find()) {
-            // 入力が必要そう -> askpass で再実行
             Path askpassCmd = resolveAskPassProgram();
             askpassCmd.toFile().deleteOnExit();
 
             SshStartResult r2 = startTunnelHidden(
-                    appDir, appKnownHosts, localBind, localPort, sshAlias, sshOptions, rdpHost, rdpPort,
-                    false, // batchMode=no
+                    appDir, appKnownHosts, localBind, localPort, sshAlias, jumpHosts, sshOptions, rdpHost, rdpPort,
+                    false,
                     askpassCmd.toAbsolutePath().toString()
             );
 
@@ -62,10 +65,11 @@ public final class SshHelpers {
             if (isProcessAlive(r2.pid())) return r2;
 
             String tail2 = tailTextFile(r2.errLog(), 160);
-            throw new IOException("SSH tunnel start failed (askpass).\n" + tail2);
+            String outTail2 = tailTextFile(r2.outLog(), 80);
+            throw new IOException("SSH tunnel start failed (askpass).\nSTDERR:\n"
+                    + tail2 + "\nSTDOUT:\n" + outTail2);
         }
 
-        // 入力要求ではない失敗
         throw new IOException("SSH tunnel start failed.\n" + tail);
     }
 
@@ -75,11 +79,12 @@ public final class SshHelpers {
             String localBind,
             int localPort,
             String sshAlias,
+            String jumpHosts,
             String sshOptions,
             String rdpHost,
             int rdpPort,
             boolean batchMode,
-            String askpassCmd // null のとき askpass 無効
+            String askpassCmd
     ) throws IOException, InterruptedException {
 
         String forward = localBind + ":" + localPort + ":" + rdpHost + ":" + rdpPort;
@@ -90,28 +95,26 @@ public final class SshHelpers {
 
         List<String> args = new ArrayList<>();
         args.add("-N");
-        args.add("-T"); // pseudo-tty 不要
+        args.add("-T");
         args.add("-L");
         args.add(forward);
 
         args.add("-o"); args.add("ExitOnForwardFailure=yes");
         args.add("-o"); args.add("ConnectTimeout=10");
-
-        // known_hosts をアプリ専用に（ユーザーの known_hosts を汚さない）
         args.add("-o"); args.add("StrictHostKeyChecking=accept-new");
         args.add("-o"); args.add("UserKnownHostsFile=" + appKnownHosts.toAbsolutePath());
-
-        // BatchMode 切替
         args.add("-o"); args.add("BatchMode=" + (batchMode ? "yes" : "no"));
 
-        // ユーザー指定（-p / -i など）
-        args.addAll(splitSshOptions(sshOptions));
+        if (jumpHosts != null && !jumpHosts.isBlank() && !containsProxyJumpOption(sshOptions)) {
+            args.add("-J");
+            args.add(normalizeJumpHosts(jumpHosts));
+        }
 
+        args.addAll(splitSshOptions(sshOptions));
         args.add(sshAlias);
 
         Map<String, String> env = new HashMap<>();
         if (!batchMode && askpassCmd != null) {
-            // GUI askpass を強制
             env.put("SSH_ASKPASS", askpassCmd);
             env.put("SSH_ASKPASS_REQUIRE", "force");
             env.put("DISPLAY", "1");
@@ -128,15 +131,38 @@ public final class SshHelpers {
         return new SshStartResult(sr.pid(), outLog, errLog);
     }
 
-    /** askpass 用の .cmd を作る（ssh.exe が prompt を引数で渡してくる -> %* で転送） */
+    private static boolean containsProxyJumpOption(String sshOptions) {
+        if (sshOptions == null || sshOptions.isBlank()) return false;
+        String normalized = " " + sshOptions.toLowerCase() + " ";
+        return normalized.contains(" -j ")
+                || normalized.contains("proxyjump")
+                || normalized.contains("proxycommand");
+    }
+
+    private static String normalizeJumpHosts(String jumpHosts) {
+        String[] parts = jumpHosts.split(",");
+        List<String> cleaned = new ArrayList<>();
+        for (String part : parts) {
+            String value = part == null ? "" : part.trim();
+            if (!value.isEmpty()) cleaned.add(value);
+        }
+        return String.join(",", cleaned);
+    }
+
     private static Path createAskPassCmd() throws IOException {
         String javaw = Paths.get(System.getProperty("java.home"), "bin", "javaw.exe").toString();
         String cp = System.getProperty("java.class.path");
+        String appExe = ProcessHandle.current().info().command().orElse("");
 
         Path cmd = Files.createTempFile("rdp-launcher-askpass-", ".cmd");
-        String content = ""
-                + "@echo off\r\n"
-                + "\"" + javaw + "\" -cp \"" + cp + "\" app.AskPassMain %*\r\n";
+        String command;
+        if (isPackagedAppExe(appExe)) {
+            command = "\"" + appExe + "\" %*";
+        } else {
+            command = "\"" + javaw + "\" -cp \"" + cp + "\" app.AskPassMain %*";
+        }
+
+        String content = "@echo off\r\n" + command + "\r\n";
         Files.writeString(cmd, content, Charset.forName("UTF-8"), StandardOpenOption.TRUNCATE_EXISTING);
         return cmd;
     }
@@ -158,7 +184,10 @@ public final class SshHelpers {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {
             if (canConnect(host, port, 300)) return true;
-            try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ignored) {
+            }
         }
         return false;
     }
@@ -196,15 +225,25 @@ public final class SshHelpers {
         if (t.isEmpty()) return out;
 
         StringBuilder cur = new StringBuilder();
-        boolean inSingle = false, inDouble = false;
+        boolean inSingle = false;
+        boolean inDouble = false;
 
         for (int i = 0; i < t.length(); i++) {
             char c = t.charAt(i);
-            if (c == '"' && !inSingle) { inDouble = !inDouble; continue; }
-            if (c == '\'' && !inDouble) { inSingle = !inSingle; continue; }
+            if (c == '"' && !inSingle) {
+                inDouble = !inDouble;
+                continue;
+            }
+            if (c == '\'' && !inDouble) {
+                inSingle = !inSingle;
+                continue;
+            }
 
             if (Character.isWhitespace(c) && !inSingle && !inDouble) {
-                if (cur.length() > 0) { out.add(cur.toString()); cur.setLength(0); }
+                if (cur.length() > 0) {
+                    out.add(cur.toString());
+                    cur.setLength(0);
+                }
                 continue;
             }
             cur.append(c);
@@ -212,18 +251,18 @@ public final class SshHelpers {
         if (cur.length() > 0) out.add(cur.toString());
         return out;
     }
+
     private static Path resolveAskPassProgram() throws IOException {
-        String self = ProcessHandle.current().info().command().orElse(null);
-        if (self != null) {
-            String name = java.nio.file.Path.of(self).getFileName().toString().toLowerCase();
-            // jpackage 実行時は .exe、開発時は java/javaw になりがち
-            if (name.endsWith(".exe") && !name.equals("java.exe") && !name.equals("javaw.exe")) {
-                return Path.of(self); // ←これを SSH_ASKPASS に入れる
-            }
-        }
-        // 開発中（gradlew run 等）: exe じゃない場合は askpass は安定しないので、
-        // 最低限のフォールバックとして従来の .cmd を返す（※ OpenSSH によっては動かない）
+        // Use a tiny .cmd shim consistently. OpenSSH for Windows handles this
+        // more reliably than passing the packaged GUI exe directly as SSH_ASKPASS.
         return createAskPassCmd();
     }
 
+    private static boolean isPackagedAppExe(String command) {
+        if (command == null || command.isBlank()) {
+            return false;
+        }
+        String name = Path.of(command).getFileName().toString().toLowerCase();
+        return name.endsWith(".exe") && !name.equals("java.exe") && !name.equals("javaw.exe");
+    }
 }

@@ -2,11 +2,14 @@ package app;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class Connection {
 
@@ -20,8 +23,8 @@ public final class Connection {
         void clearPassword();
     }
 
-    private final String localBind;            // 例: "127.0.0.1"
-    private final String loopbackHostForRdp;   // 例: "localhost" (互換用)
+    private final String localBind;
+    private final String loopbackHostForRdp;
     private final String mstscExe;
     private final Path appDir;
     private final Path appKnownHosts;
@@ -34,8 +37,6 @@ public final class Connection {
 
     private volatile int sshPid = -1;
     private volatile Process mstscProc = null;
-
-    // 直近で登録した一時資格情報のキー一覧（改行区切り）
     private volatile String lastTempCredKey = null;
 
     public Connection(String localBind, String loopbackHostForRdp, String mstscExe, Path appDir, Path appKnownHosts) {
@@ -47,9 +48,8 @@ public final class Connection {
     }
 
     public void connect(Session s0, String rawUser, String rawDomain, String rawPass, Ui ui) {
-        // UI入力が空なら、セッションに保存されている Username/Domain を使う
-        String u = (rawUser == null) ? "" : rawUser.trim();
-        String d = (rawDomain == null) ? "" : rawDomain.trim();
+        String u = rawUser == null ? "" : rawUser.trim();
+        String d = rawDomain == null ? "" : rawDomain.trim();
 
         if (u.isEmpty() && s0.username() != null && !s0.username().isBlank()) u = s0.username().trim();
         if (d.isEmpty() && s0.domain() != null && !s0.domain().isBlank()) d = s0.domain().trim();
@@ -63,7 +63,7 @@ public final class Connection {
         ui.log("[INFO] hasUser=" + hasUser + " hasPass=" + hasPass);
 
         if (!hasUser && hasPass) {
-            ui.alert("Password だけ入力されています。Username を入力してください。");
+            ui.alert("Password only is not supported. Enter a username too.");
             return;
         }
 
@@ -72,20 +72,17 @@ public final class Connection {
         ui.status("Connecting...");
         ui.log("[INFO] Connect: " + s0.name()
                 + " (Bastion=" + (s0.useBastion() ? s0.sshAlias() : "OFF")
+                + ", RDG=" + (s0.useRdGateway() ? s0.rdGatewayHost() : "OFF")
                 + ", RDP=" + s0.rdpHost() + ":" + s0.rdpPort() + ")");
 
         exec.submit(() -> {
             boolean tempCredUsed = false;
             Path tempRdpFile = null;
 
-            String rdpHostToUse = null;
-            int rdpPortToUse = -1;
+            String rdpHostToUse = s0.rdpHost();
+            int rdpPortToUse = s0.rdpPort();
 
             try {
-                rdpHostToUse = s0.rdpHost();
-                rdpPortToUse = s0.rdpPort();
-
-                // --- SSH tunnel ---
                 if (s0.useBastion()) {
                     Files.createDirectories(appDir);
 
@@ -98,6 +95,7 @@ public final class Connection {
                             localBind,
                             localPort,
                             s0.sshAlias(),
+                            s0.jumpHosts(),
                             s0.sshOptions(),
                             s0.rdpHost(),
                             s0.rdpPort()
@@ -109,25 +107,18 @@ public final class Connection {
 
                     if (!SshHelpers.waitLocalPortOpen(localBind, localPort, Duration.ofSeconds(120))) {
                         String tail = SshHelpers.tailTextFile(ssh.errLog(), 120);
-                        throw new IllegalStateException("踏み台トンネルのローカルポートが開きません: "
+                        throw new IllegalStateException("SSH tunnel did not open a local port: "
                                 + localBind + ":" + localPort + "\n" + tail);
                     }
 
-                    // ★重要：ここで mstsc 接続先を 127.0.0.1 に固定して揺れを消す
-                    // （localhost だと環境によって ::1 側に揺れて cmdkey と合わないことがある）
-                    rdpHostToUse = localBind;   // 例: "127.0.0.1"
+                    rdpHostToUse = localBind;
                     rdpPortToUse = localPort;
                 }
 
-                // --- Credential handling ---
-                // ★重要：cmdkey は「hostのみ（ポート無し）」が効きやすい。候補を増やすほど外す。
-                // 踏み台ON時は 127.0.0.1 を本命にして、互換で localhost も入れる（必要最小限）
                 List<String> credKeys = new ArrayList<>();
                 if (hasUser && hasPass) {
-                    // 本命
                     credKeys.add(rdpHostToUse);
 
-                    // 互換：踏み台ONなら loopbackHostForRdp(例: localhost) も入れる
                     if (s0.useBastion()
                             && loopbackHostForRdp != null
                             && !loopbackHostForRdp.isBlank()
@@ -158,11 +149,11 @@ public final class Connection {
 
                 ui.status("RDP running");
 
-                // --- mstsc launch ---
-                //  - AUTO(user+pass) は /v: で起動（prompt設定に邪魔されない）
-                //  - PROMPT(user only) は .rdp で username を入れてプロンプト表示
                 if (hasUser && !hasPass) {
-                    tempRdpFile = createTempRdpFile(rdpHostToUse, rdpPortToUse, userForRdp, s0);
+                    tempRdpFile = createTempRdpFile(rdpHostToUse, rdpPortToUse, userForRdp, s0, true);
+                    mstscProc = new ProcessBuilder(mstscExe, tempRdpFile.toAbsolutePath().toString()).start();
+                } else if (s0.useRdGateway() || hasSelectedMonitors(s0)) {
+                    tempRdpFile = createTempRdpFile(rdpHostToUse, rdpPortToUse, hasUser ? userForRdp : null, s0, false);
                     mstscProc = new ProcessBuilder(mstscExe, tempRdpFile.toAbsolutePath().toString()).start();
                 } else {
                     mstscProc = launchMstsc(mstscExe, rdpHostToUse, rdpPortToUse, s0);
@@ -180,31 +171,39 @@ public final class Connection {
                 mstscProc = null;
 
                 if (tempRdpFile != null) {
-                    try { Files.deleteIfExists(tempRdpFile); } catch (Exception ignored) {}
+                    try {
+                        Files.deleteIfExists(tempRdpFile);
+                    } catch (Exception ignored) {
+                    }
                 }
 
-                // 一時資格情報を確実に削除（登録した分だけ）
                 if (tempCredUsed) {
                     String keys = lastTempCredKey;
                     if (keys != null && !keys.isBlank()) {
                         for (String k : keys.split("\\R")) {
                             String kk = k.trim();
                             if (kk.isEmpty()) continue;
-                            try { CredentialManager.deleteTempCredential(kk); } catch (Exception ignored) {}
+                            try {
+                                CredentialManager.deleteTempCredential(kk);
+                            } catch (Exception ignored) {
+                            }
                         }
                         ui.log("[INFO] Temporary credentials removed.");
                     }
                 }
                 lastTempCredKey = null;
 
-                try { stopSshIfNeeded(ui); } catch (Exception ignored) {}
+                try {
+                    stopSshIfNeeded(ui);
+                } catch (Exception ignored) {
+                }
 
                 ui.runOnFx(() -> {
                     ui.setInputsDisabled(false);
                     ui.setConnected(false);
                 });
 
-                if (!"Error".equalsIgnoreCase(getSafeStatus(ui))) ui.status("Ready");
+                ui.status("Ready");
             }
         });
     }
@@ -218,7 +217,6 @@ public final class Connection {
             try {
                 stopMstscIfNeeded(ui);
 
-                // 直近で登録した資格情報を確実に掃除
                 String keys = lastTempCredKey;
                 if (keys != null && !keys.isBlank()) {
                     for (String k : keys.split("\\R")) {
@@ -227,7 +225,8 @@ public final class Connection {
                         try {
                             CredentialManager.deleteTempCredential(kk);
                             ui.log("[INFO] Temporary credentials removed: TERMSRV/" + kk);
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                        }
                     }
                     lastTempCredKey = null;
                 }
@@ -249,11 +248,10 @@ public final class Connection {
         try {
             Process p = mstscProc;
             if (p != null) p.destroyForcibly();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         exec.shutdownNow();
     }
-
-    // ------------------ helpers ------------------
 
     private void stopSshIfNeeded(Ui ui) throws IOException, InterruptedException {
         int pid = sshPid;
@@ -270,13 +268,13 @@ public final class Connection {
             ui.log("[INFO] Closing mstsc...");
             if (p.isAlive()) {
                 long pid = -1;
-                try { pid = p.pid(); } catch (Throwable ignored) {}
+                try {
+                    pid = p.pid();
+                } catch (Throwable ignored) {
+                }
 
                 if (pid > 0) {
-                    HiddenExec.runHiddenAndWait(
-                            "taskkill.exe",
-                            List.of("/PID", String.valueOf(pid), "/T", "/F")
-                    );
+                    HiddenExec.runHiddenAndWait("taskkill.exe", List.of("/PID", String.valueOf(pid), "/T", "/F"));
                 } else {
                     p.destroyForcibly();
                 }
@@ -298,8 +296,8 @@ public final class Connection {
         if (s.fullscreen()) {
             cmd.add("/f");
         } else {
-            int w = (s.width() != null) ? s.width() : 1600;
-            int h = (s.height() != null) ? s.height() : 900;
+            int w = s.width() != null ? s.width() : 1600;
+            int h = s.height() != null ? s.height() : 900;
             cmd.add("/w:" + w);
             cmd.add("/h:" + h);
         }
@@ -309,24 +307,37 @@ public final class Connection {
         return new ProcessBuilder(cmd).start();
     }
 
-    private static Path createTempRdpFile(String host, int port, String username, Session s) throws IOException {
+    private static Path createTempRdpFile(String host, int port, String username, Session s, boolean promptForCredentials) throws IOException {
         Path p = Files.createTempFile("rdp-launcher-", ".rdp");
 
-        int w = (s.width()  != null) ? s.width()  : 1600;
-        int h = (s.height() != null) ? s.height() : 900;
+        int w = s.width() != null ? s.width() : 1600;
+        int h = s.height() != null ? s.height() : 900;
 
         StringBuilder sb = new StringBuilder();
         sb.append("full address:s:").append(host).append(":").append(port).append("\r\n");
-        sb.append("username:s:").append(username).append("\r\n");
-
-        // PROMPT(user only) 用: 資格情報入力を必ず出す
-        sb.append("prompt for credentials:i:1").append("\r\n");
-
+        if (username != null && !username.isBlank()) {
+            sb.append("username:s:").append(username).append("\r\n");
+        }
+        sb.append("prompt for credentials:i:").append(promptForCredentials ? 1 : 0).append("\r\n");
         sb.append("authentication level:i:2").append("\r\n");
         sb.append("enablecredsspsupport:i:1").append("\r\n");
+        sb.append("redirectclipboard:i:1").append("\r\n");
 
-        // ★詳細設定を反映
-        if (s.fullscreen()) {
+        if (s.useRdGateway()) {
+            sb.append("gatewayprofileusagemethod:i:1").append("\r\n");
+            sb.append("gatewayusagemethod:i:1").append("\r\n");
+            sb.append("gatewayhostname:s:").append(s.rdGatewayHost()).append("\r\n");
+            sb.append("gatewaycredentialssource:i:").append(s.rdGatewayUseCurrentUser() ? 2 : 4).append("\r\n");
+            sb.append("promptcredentialonce:i:").append(s.rdGatewayShareCreds() ? 1 : 0).append("\r\n");
+        } else {
+            sb.append("gatewayusagemethod:i:0").append("\r\n");
+        }
+
+        if (hasSelectedMonitors(s)) {
+            sb.append("screen mode id:i:2").append("\r\n");
+            sb.append("use multimon:i:1").append("\r\n");
+            sb.append("selectedmonitors:s:").append(s.selectedMonitors()).append("\r\n");
+        } else if (s.fullscreen()) {
             sb.append("screen mode id:i:2").append("\r\n");
         } else {
             sb.append("screen mode id:i:1").append("\r\n");
@@ -334,26 +345,24 @@ public final class Connection {
             sb.append("desktopheight:i:").append(h).append("\r\n");
         }
 
-        if (s.multimon()) sb.append("use multimon:i:1").append("\r\n");
-        if (s.span())     sb.append("span monitors:i:1").append("\r\n");
+        if (!hasSelectedMonitors(s) && s.multimon()) sb.append("use multimon:i:1").append("\r\n");
+        if (!hasSelectedMonitors(s) && s.span()) sb.append("span monitors:i:1").append("\r\n");
 
         Files.writeString(p, sb.toString(), Charset.forName("UTF-8"), StandardOpenOption.TRUNCATE_EXISTING);
         return p;
     }
 
-
     private static String buildUsernameForCmdkey(String rawUser, String rawDomain) {
         String user = rawUser == null ? "" : rawUser.trim();
-        String dom  = rawDomain == null ? "" : rawDomain.trim();
+        String dom = rawDomain == null ? "" : rawDomain.trim();
 
         if (user.isEmpty()) return "";
         if (user.contains("\\") || user.contains("@")) return user;
-
         if (!dom.isEmpty()) return dom + "\\" + user;
         return user;
     }
 
-    private static String getSafeStatus(Ui ui) {
-        return "";
+    private static boolean hasSelectedMonitors(Session s) {
+        return s.selectedMonitors() != null && !s.selectedMonitors().isBlank();
     }
 }
